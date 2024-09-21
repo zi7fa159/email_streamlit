@@ -13,10 +13,16 @@ def send_request(session, url, data):
     except Exception as e:
         return False  # Any exception is treated as a failure
 
-# Multithreaded request execution
+# Multithreaded request execution with real-time progress update
 def run_multithreaded_requests(num_requests, num_threads, url, data):
     success_count = 0
     fail_count = 0
+    
+    # Progress bar and placeholders for success/fail counts
+    progress_bar = st.progress(0)
+    progress_placeholder = st.empty()
+    success_placeholder = st.empty()
+    fail_placeholder = st.empty()
     
     # Use a session to reuse connection pools (faster requests)
     with requests.Session() as session:
@@ -24,25 +30,18 @@ def run_multithreaded_requests(num_requests, num_threads, url, data):
             futures = [executor.submit(send_request, session, url, data) for _ in range(num_requests)]
 
             # Collect results as they are completed
-            for future in as_completed(futures):
+            for i, future in enumerate(as_completed(futures), 1):
                 result = future.result()
                 if result:
                     success_count += 1
                 else:
                     fail_count += 1
 
-                # Streamlit updates
-                st.session_state.progress += 1
-                st.session_state.successes = success_count
-                st.session_state.failures = fail_count
-
-# Initialize session state for tracking progress
-if 'progress' not in st.session_state:
-    st.session_state.progress = 0
-if 'successes' not in st.session_state:
-    st.session_state.successes = 0
-if 'failures' not in st.session_state:
-    st.session_state.failures = 0
+                # Update progress and statistics in real-time
+                progress_bar.progress(i / num_requests)
+                progress_placeholder.text(f"Progress: {i}/{num_requests}")
+                success_placeholder.text(f"Successes: {success_count}")
+                fail_placeholder.text(f"Failures: {fail_count}")
 
 # Streamlit UI
 st.title("Multithreaded Requests App")
@@ -50,14 +49,14 @@ st.write("This app sends multiple concurrent POST requests using multithreading.
 
 # User input fields
 email = st.text_input("Enter your email", "")
-num_threads = st.number_input("Number of threads", min_value=1, max_value=5000000, value=50)
-counter_limit = st.number_input("Number of requests to send", min_value=1, max_value=10000000, value=100)
+num_threads = st.number_input("Number of threads", min_value=1, max_value=99999, value=50)
+counter_limit = st.number_input("Number of requests to send", min_value=1, max_value=9999999999999999999999, value=100)
 
 # URL and data for the POST request
 url = 'https://70games.net/user-send_code-user_create.htm'
 data = {
     'username': 'hdjdjd',
-    'password': email,  # Using email as password just for demo
+    'password': email,  # Using email as password for demo purposes
     'inviter': '',
     'email': email,
     'code': '',
@@ -65,20 +64,12 @@ data = {
 
 # Button to start the process
 if st.button("Start Requests"):
-    # Reset session state
-    st.session_state.progress = 0
-    st.session_state.successes = 0
-    st.session_state.failures = 0
+    if email:
+        st.write(f"Sending {counter_limit} requests using {num_threads} threads...")
 
-    st.write(f"Sending {counter_limit} requests using {num_threads} threads...")
+        # Run the multithreaded requests function
+        run_multithreaded_requests(counter_limit, num_threads, url, data)
 
-    # Run the multithreaded requests function
-    run_multithreaded_requests(counter_limit, num_threads, url, data)
-
-    st.success("Requests completed!")
-
-# Progress bar and statistics display
-progress_bar = st.progress(st.session_state.progress / counter_limit)
-st.write(f"Progress: {st.session_state.progress}/{counter_limit}")
-st.write(f"Successes: {st.session_state.successes}")
-st.write(f"Failures: {st.session_state.failures}")
+        st.success("Requests completed!")
+    else:
+        st.error("Please enter a valid email.")

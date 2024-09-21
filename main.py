@@ -10,7 +10,7 @@ def send_request(session, url, data):
             return True  # Success
         else:
             return False  # Failure
-    except Exception as e:
+    except Exception:
         return False  # Any exception is treated as a failure
 
 # Multithreaded request execution with real-time progress update
@@ -62,21 +62,21 @@ data = {
     'code': '',
 }
 
-# Button to start the process
-if st.button("Start Requests"):
-    if email:
-        st.write(f"Sending {counter_limit} requests using {num_threads} threads...")
+# Initialize session state to track if requests are in progress
+if 'in_progress' not in st.session_state:
+    st.session_state.in_progress = False
 
-        # Run the multithreaded requests function
-        run_multithreaded_requests(counter_limit, num_threads, url, data)
-
-        st.success("Requests completed!")
+# Button to start/stop the process
+if st.button("Stop Requests" if st.session_state.in_progress else "Start Requests"):
+    if st.session_state.in_progress:
+        st.session_state.in_progress = False  # Stop requests
+        st.success("Requests stopped!")
     else:
-        st.error("Please enter a valid email.")
-
-# Reset button to clear the session state
-if st.button("Reset"):
-    st.session_state.progress = 0
-    st.session_state.successes = 0
-    st.session_state.failures = 0
-    st.experimental_rerun()  # Rerun the app to refresh the UI
+        if email:
+            st.session_state.in_progress = True  # Start requests
+            st.write(f"Sending {counter_limit} requests using {num_threads} threads...")
+            run_multithreaded_requests(counter_limit, num_threads, url, data)
+            st.success("Requests completed!")
+            st.session_state.in_progress = False  # Reset progress after completion
+        else:
+            st.error("Please enter a valid email.")

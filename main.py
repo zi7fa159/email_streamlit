@@ -1,77 +1,75 @@
 import requests
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
-from datetime import datetime
-from tenacity import retry, stop_after_attempt, wait_exponential
 
-# Password Protection for the UI
-def check_password():
-    password = st.text_input("Enter Password", type="password")
-    if password == "@EmailTool123":
-        return True
-    elif password:
-        st.error("Incorrect Password")
-    return False
-
-# Retry Mechanism with Exponential Backoff
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
-def send_request(url, data, proxy=None):
+# Function to send a POST request and check the status code
+def send_request(session, url, data):
     try:
-        response = requests.post(url, data=data, proxies={"http": proxy, "https": proxy} if proxy else None)
-        return response.status_code == 200
-    except Exception:
-        return False
+        response = session.post(url, data=data)
+        if response.status_code == 200:
+            return True  # Success
+        else:
+            return False  # Failure
+    except Exception as e:
+        return False  # Any exception is treated as a failure
 
-# Main function to send requests
-def run_requests(num_requests, url, data, proxies, webhook_url):
+# Multithreaded request execution with real-time progress update
+def run_multithreaded_requests(num_requests, num_threads, url, data):
     success_count = 0
     fail_count = 0
+    
+    # Progress bar and placeholders for success/fail counts
+    progress_bar = st.progress(0)
+    progress_placeholder = st.empty()
+    success_placeholder = st.empty()
+    fail_placeholder = st.empty()
+    
+    # Use a session to reuse connection pools (faster requests)
+    with requests.Session() as session:
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = [executor.submit(send_request, session, url, data) for _ in range(num_requests)]
 
-    with ThreadPoolExecutor(max_workers=len(proxies) or 1) as executor:
-        futures = [executor.submit(send_request, url, data, proxies[i % len(proxies)] if proxies else None) for i in range(num_requests)]
-        for future in futures:
-            if future.result():
-                success_count += 1
-            else:
-                fail_count += 1
+            # Collect results as they are completed
+            for i, future in enumerate(as_completed(futures), 1):
+                result = future.result()
+                if result:
+                    success_count += 1
+                else:
+                    fail_count += 1
 
-    # Display final counts
-    st.write(f"Total Successes: {success_count}")
-    st.write(f"Total Failures: {fail_count}")
-
-    # Trigger webhook
-    if webhook_url:
-        webhook_data = {
-            'success_count': success_count,
-            'fail_count': fail_count,
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        requests.post(webhook_url, json=webhook_data)
+                # Update progress and statistics in real-time
+                progress_bar.progress(i / num_requests)
+                progress_placeholder.text(f"Progress: {i}/{num_requests}")
+                success_placeholder.text(f"Successes: {success_count}")
+                fail_placeholder.text(f"Failures: {fail_count}")
 
 # Streamlit UI
-if check_password():
-    st.title("Asynchronous Requests Tool with Proxy, Retry, and Webhook Support")
+st.title("Multithreaded Requests App")
+st.write("This app sends multiple concurrent POST requests using multithreading.")
 
-    # Input fields
-    email = st.text_input("Enter your email", "")
-    webhook_url = st.text_input("Webhook URL for notifications", "")
-    proxy_list = st.text_area("Enter Proxies (one per line)", "").split("\n")
-    num_requests = st.number_input("Number of requests", min_value=1, max_value=1000, value=100)
+# User input fields
+email = st.text_input("Enter your email", "")
+num_threads = st.number_input("Number of threads", min_value=1, max_value=50, value=5)
+counter_limit = st.number_input("Number of requests to send", min_value=1, max_value=1000, value=100)
 
-    # URL and data for the POST request
-    url = 'https://70games.net/user-send_code-user_create.htm'
-    data = {
-        'username': 'hdjdjd',
-        'password': email,
-        'inviter': '',
-        'email': email,
-        'code': '',
-    }
+# URL and data for the POST request
+url = 'https://70games.net/user-send_code-user_create.htm'
+data = {
+    'username': 'hdjdjd',
+    'password': email,  # Using email as password for demo purposes
+    'inviter': '',
+    'email': email,
+    'code': '',
+}
 
-    # Start button logic
-    if st.button("Start Requests"):
-        if email:
-            run_requests(num_requests, url, data, proxy_list, webhook_url)
-            st.success("Requests completed!")
-        else:
-            st.error("Please enter a valid email.")
+# Button to start the process
+if st.button("Start Requests"):
+    if email:
+        st.write(f"Sending {counter_limit} requests using {num_threads} threads...")
+
+        # Run the multithreaded requests function
+        run_multithreaded_requests(counter_limit, num_threads, url, data)
+
+        st.success("Requests completed!")
+    else:
+        st.error("Please enter a valid email.")

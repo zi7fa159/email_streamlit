@@ -46,7 +46,7 @@ st.write("This app sends multiple concurrent POST requests using multithreading.
 
 # User input fields
 email = st.text_input("Enter your email", "")
-num_threads = st.number_input("Number of threads to use", min_value=1, max_value=50, value=5)
+num_threads = st.number_input("Number of threads to use", min_value=1, max_value=500, value=5)
 counter_limit = st.number_input("Number of requests to send", min_value=1, max_value=1000, value=100)
 
 # URLs for the POST requests

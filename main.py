@@ -13,13 +13,11 @@ def send_request(session, url, data):
 # Multithreaded request execution with real-time progress update
 def run_multithreaded_requests(num_requests, num_threads, url, data):
     success_count = 0
-    fail_count = 0
 
     # Progress bar and placeholders for success/fail counts
     progress_bar = st.progress(0)
     progress_placeholder = st.empty()
     success_placeholder = st.empty()
-    fail_placeholder = st.empty()
 
     # Use a session to reuse connection pools (faster requests)
     with requests.Session() as session:
@@ -33,14 +31,13 @@ def run_multithreaded_requests(num_requests, num_threads, url, data):
                 result = future.result()
                 if result:
                     success_count += 1
-                else:
-                    fail_count += 1
+              
 
                 # Update progress and statistics in real-time
                 progress_bar.progress(i / num_requests)
                 progress_placeholder.text(f"Progress: {i}/{num_requests}")
                 success_placeholder.text(f"Successes: {success_count}")
-                fail_placeholder.text(f"Failures: {fail_count}")
+                
 
     # Reset progress if finished or stopped
     if st.session_state.in_progress:

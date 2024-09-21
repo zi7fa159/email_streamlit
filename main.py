@@ -13,7 +13,7 @@ def send_request(session, url, data):
     except Exception as e:
         return False  # Any exception is treated as a failure
 
-# Multithreaded request execution for the first API
+# Multithreaded request execution
 def run_multithreaded_requests(num_requests, num_threads, url, data):
     success_count = 0
     fail_count = 0
@@ -36,9 +36,13 @@ def run_multithreaded_requests(num_requests, num_threads, url, data):
                 st.session_state.successes = success_count
                 st.session_state.failures = fail_count
 
-# Function to prepare data for the second API
-def prepare_data(email):
-    return f"email={email}&pass=&type=email&access_token="
+# Initialize session state for tracking progress
+if 'progress' not in st.session_state:
+    st.session_state.progress = 0
+if 'successes' not in st.session_state:
+    st.session_state.successes = 0
+if 'failures' not in st.session_state:
+    st.session_state.failures = 0
 
 # Streamlit UI
 st.title("Multithreaded Requests App")
@@ -46,12 +50,18 @@ st.write("This app sends multiple concurrent POST requests using multithreading.
 
 # User input fields
 email = st.text_input("Enter your email", "")
-num_threads = st.number_input("Number of threads to use", min_value=1, max_value=500, value=5)
-counter_limit = st.number_input("Number of requests to send", min_value=1, max_value=1000, value=100)
+num_threads = st.number_input("Number of threads", min_value=1, max_value=5000000, value=50)
+counter_limit = st.number_input("Number of requests to send", min_value=1, max_value=10000000, value=100)
 
-# URLs for the POST requests
-url1 = 'https://70games.net/user-send_code-user_create.htm'
-url2 = 'https://prankhotline.com/api/?a=login'
+# URL and data for the POST request
+url = 'https://70games.net/user-send_code-user_create.htm'
+data = {
+    'username': 'hdjdjd',
+    'password': email,  # Using email as password just for demo
+    'inviter': '',
+    'email': email,
+    'code': '',
+}
 
 # Button to start the process
 if st.button("Start Requests"):
@@ -62,28 +72,13 @@ if st.button("Start Requests"):
 
     st.write(f"Sending {counter_limit} requests using {num_threads} threads...")
 
-    # Prepare data for the first API request
-    data1 = {
-        'username': 'hdjdjd',
-        'password': email,  # Using email as password for demo
-        'inviter': '',
-        'email': email,
-        'code': '',
-    }
-
-    # Run the first multithreaded requests function
-    run_multithreaded_requests(counter_limit, num_threads, url1, data1)
-
-    # Prepare data for the second API request
-    data2 = prepare_data(email)
-
-    # Run the second multithreaded requests function
-    run_multithreaded_requests(counter_limit, num_threads, url2, data2)
+    # Run the multithreaded requests function
+    run_multithreaded_requests(counter_limit, num_threads, url, data)
 
     st.success("Requests completed!")
 
 # Progress bar and statistics display
-progress_bar = st.progress(st.session_state.progress / (counter_limit * 2))  # Multiply by 2 for two requests
-st.write(f"Progress: {st.session_state.progress}/{counter_limit * 2}")
+progress_bar = st.progress(st.session_state.progress / counter_limit)
+st.write(f"Progress: {st.session_state.progress}/{counter_limit}")
 st.write(f"Successes: {st.session_state.successes}")
 st.write(f"Failures: {st.session_state.failures}")

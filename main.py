@@ -6,17 +6,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 # Password Protection for the UI
 def check_password():
-    if 'password_entered' not in st.session_state:
-        st.session_state.password_entered = False
-    
-    if not st.session_state.password_entered:
-        password = st.text_input("Enter Password", type="password")
-        if password == "@EmailTool123":
-            st.session_state.password_entered = True
-        else:
-            st.error("Incorrect Password")
-        return False
-    return True
+    password = st.text_input("Enter Password", type="password")
+    if password == "@EmailTool123":
+        return True
+    elif password:
+        st.error("Incorrect Password")
+    return False
 
 # Retry Mechanism with Exponential Backoff
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
@@ -24,7 +19,7 @@ def send_request(url, data, proxy=None):
     try:
         response = requests.post(url, data=data, proxies={"http": proxy, "https": proxy} if proxy else None)
         return response.status_code == 200
-    except Exception as e:
+    except Exception:
         return False
 
 # Main function to send requests

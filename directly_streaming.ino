@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <driver/i2s.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoWebsockets.h>
 #include <ArduinoJson.h>
 
@@ -18,14 +19,18 @@ using namespace websockets;
 const char* WIFI_SSID = "YOUR_WIFI_SSID";
 const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 
-// Deepgram URL (latest model, 5s VAD turnoff, linear16 encoding, 16kHz sample rate)
-const char* DEEPGRAM_URL = "wss://api.deepgram.com/v1/listen?model=latest&vad_turnoff=5000&encoding=linear16&sample_rate=16000&access_token=YOUR_API_KEY";
+// Deepgram configuration: use latest model, VAD turnoff 5000ms, linear16 encoding, 16kHz sample rate
+const char* DEEPGRAM_HOST = "api.deepgram.com";
+const char* DEEPGRAM_PATH = "/v1/listen?model=latest&vad_turnoff=5000&encoding=linear16&sample_rate=16000&access_token=YOUR_API_KEY";
 
-// This function streams I2S audio to Deepgram and returns the final transcript.
+// Streams I2S audio to Deepgram and returns the final transcript.
 String streamDeepgramTranscript() {
-  // Initialize WebSocket client using the URL
-  WebsocketsClient client;
-  if (!client.connect(DEEPGRAM_URL)) {
+  // Create a secure WiFi client and disable certificate verification.
+  WiFiClientSecure secureClient;
+  secureClient.setInsecure();
+  
+  WebsocketsClient wsClient;
+  if (!wsClient.connect(secureClient, DEEPGRAM_HOST, 443, DEEPGRAM_PATH)) {
     Serial.println("WebSocket Connection Failed");
     return "";
   }
@@ -67,18 +72,16 @@ String streamDeepgramTranscript() {
   unsigned long lastSend = millis();
   
   while (true) {
-    // Read audio data from I2S and send it as a binary message.
     if (i2s_read(I2S_PORT, buffer, sizeof(buffer), &bytesRead, 10) == ESP_OK && bytesRead > 0) {
-      client.sendBinary(String((const char*)buffer, bytesRead));
+      // Send binary data by wrapping the buffer in a String that includes its length.
+      wsClient.sendBinary(String((const char*)buffer, bytesRead));
       lastSend = millis();
     }
     
-    // Check if a message is available.
-    if (client.available()) {
-      WebsocketsMessage msg = client.readBlocking();
+    if (wsClient.available()) {
+      WebsocketsMessage msg = wsClient.readBlocking();
       String incoming = msg.data();
       
-      // Parse JSON response using ArduinoJson.
       DynamicJsonDocument doc(1024);
       DeserializationError error = deserializeJson(doc, incoming);
       if (!error) {
@@ -97,7 +100,6 @@ String streamDeepgramTranscript() {
       }
     }
     
-    // Safeguard: break if no audio has been sent for 30 seconds.
     if (millis() - lastSend > 30000) {
       Serial.println("Stream timeout.");
       break;
@@ -105,7 +107,7 @@ String streamDeepgramTranscript() {
   }
   
   i2s_driver_uninstall(I2S_PORT);
-  client.close();
+  wsClient.close();
   return finalTranscript;
 }
 

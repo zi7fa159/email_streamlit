@@ -1,7 +1,9 @@
 #include <Arduino.h>
 #include <driver/i2s.h>
+#include <WiFi.h>
 #include <ArduinoWebsockets.h>
 #include <ArduinoJson.h>
+
 using namespace websockets;
 
 #define I2S_PORT         I2S_NUM_0
@@ -10,15 +12,31 @@ using namespace websockets;
 #define I2S_SD           32
 #define SAMPLE_RATE      16000
 #define SAMPLE_BITS      16
-#define BYTES_PER_SAMPLE (SAMPLE_BITS/8)
 #define BUF_SIZE         512
 
-// Deepgram endpoint: latest model with VAD (5s turnoff)
-const char* DEEPGRAM_ENDPOINT = "wss://api.deepgram.com/v1/listen?model=latest&vad_turnoff=5000&access_token=YOUR_API_KEY";
+// WiFi Credentials
+const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 
-// Function: Streams I2S audio to Deepgram via websockets and returns the final transcript.
+// Deepgram WebSocket Endpoint
+const char* DEEPGRAM_HOST = "api.deepgram.com";
+const char* DEEPGRAM_PATH = "/v1/listen?model=latest&vad_turnoff=5000&encoding=linear16&sample_rate=16000";
+const char* DEEPGRAM_KEY = "YOUR_API_KEY";
+
+// Function to stream I2S audio to Deepgram and return the final transcript
 String streamDeepgramTranscript() {
-  i2s_config_t cfg = {
+  WiFiClientSecure wifiClient;
+  wifiClient.setInsecure(); // Disable SSL verification
+
+  WebsocketsClient client;
+  if (!client.connect(wifiClient, DEEPGRAM_HOST, 443, DEEPGRAM_PATH, DEEPGRAM_KEY)) {
+    Serial.println("WebSocket Connection Failed");
+    return "";
+  }
+  Serial.println("Connected to Deepgram");
+
+  // I2S Configuration
+  i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = SAMPLE_RATE,
     .bits_per_sample = (i2s_bits_per_sample_t)SAMPLE_BITS,
@@ -29,77 +47,70 @@ String streamDeepgramTranscript() {
     .dma_buf_len = BUF_SIZE,
     .use_apll = false
   };
-  i2s_pin_config_t pin = {
+  
+  i2s_pin_config_t pin_config = {
     .bck_io_num = I2S_SCK,
     .ws_io_num = I2S_WS,
     .data_out_num = I2S_PIN_NO_CHANGE,
     .data_in_num = I2S_SD
   };
-  i2s_driver_uninstall(I2S_PORT);
-  if(i2s_driver_install(I2S_PORT, &cfg, 0, NULL) != ESP_OK) {
-    Serial.println("I2S install error");
-    return "";
-  }
-  if(i2s_set_pin(I2S_PORT, &pin) != ESP_OK) {
-    Serial.println("I2S pin error");
-    return "";
-  }
+
+  i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
+  i2s_set_pin(I2S_PORT, &pin_config);
   i2s_start(I2S_PORT);
-  
-  WebsocketsClient client;
-  client.setReceiveTimeout(10000);
-  if(!client.connect(DEEPGRAM_ENDPOINT)) {
-    Serial.println("WS connect error");
-    i2s_driver_uninstall(I2S_PORT);
-    return "";
-  }
-  Serial.println("Connected to Deepgram");
-  
+
   String finalTranscript = "";
-  uint8_t buf[BUF_SIZE];
-  size_t r = 0;
+  uint8_t buffer[BUF_SIZE];
+  size_t bytesRead = 0;
   unsigned long lastSend = millis();
-  
-  while(true) {
-    if(i2s_read(I2S_PORT, buf, sizeof(buf), &r, 10) == ESP_OK && r > 0) {
-      client.sendBinary((char*)buf, r);
+
+  while (true) {
+    if (i2s_read(I2S_PORT, buffer, sizeof(buffer), &bytesRead, 10) == ESP_OK && bytesRead > 0) {
+      client.sendBinary((const char*)buffer, bytesRead);
       lastSend = millis();
     }
-    String msg = client.poll();
-    if(msg.length()) {
+
+    if (client.available()) {
+      WebsocketsMessage message = client.readBlocking();
       DynamicJsonDocument doc(1024);
-      DeserializationError err = deserializeJson(doc, msg);
-      if(!err) {
+      DeserializationError error = deserializeJson(doc, message.data());
+
+      if (!error) {
         bool isFinal = doc["channel"]["alternatives"][0]["is_final"];
-        const char* t = doc["channel"]["alternatives"][0]["transcript"];
-        if(t) {
-          finalTranscript = t;
-          Serial.printf("Transcript: %s\n", t);
+        const char* transcript = doc["channel"]["alternatives"][0]["transcript"];
+
+        if (transcript) {
+          finalTranscript = transcript;
+          Serial.printf("Transcript: %s\n", transcript);
         }
-        if(isFinal) {
+
+        if (isFinal) {
           Serial.println("Final transcript received.");
           break;
         }
-      } else {
-        Serial.printf("JSON error: %s\n", err.f_str());
       }
     }
-    if(millis() - lastSend > 30000) {
+
+    if (millis() - lastSend > 30000) {
       Serial.println("Stream timeout.");
       break;
     }
   }
-  
+
   i2s_driver_uninstall(I2S_PORT);
-  client.disconnect();
+  client.close();
   return finalTranscript;
 }
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
-  Serial.println("ESP32 Deepgram Speech-to-Text Demo");
-  
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected");
+
   String transcript = streamDeepgramTranscript();
   Serial.println("Final Transcript:");
   Serial.println(transcript);

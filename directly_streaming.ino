@@ -7,7 +7,7 @@
 
 // WiFi credentials – replace with your own
 const char* ssid = "your-SSID";
-const char* password = "your-PASSWORhD";
+const char* password = "your-PASSWORD";
 
 // Deepgram API key – replace with your actual key
 const char* deepgramApiKey = "...";
@@ -25,7 +25,8 @@ const char* deepgramApiKey = "...";
 #define BUF_SIZE      512
 #define FILENAME      "/rec.wav"
 
-// Single function that records audio, updates the WAV header, sends to Deepgram, and returns the transcript.
+// Single function that records audio, updates the WAV header,
+// sends the file to Deepgram, and returns the transcript.
 String recordAndTranscribe() {
   // Initialize SPIFFS for file storage
   Serial.println("Initializing SPIFFS...");
@@ -34,9 +35,10 @@ String recordAndTranscribe() {
     return "";
   }
   
-  // Initialize I2S driver (uninstall if already installed)
-  // Note: The uninstall warning is non-fatal if the driver isn’t installed yet.
+  // Uninstall I2S driver if installed (ignore warning if not)
   i2s_driver_uninstall(I2S_PORT);
+  
+  // Initialize I2S for recording
   Serial.println("Initializing I2S...");
   i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
@@ -65,18 +67,18 @@ String recordAndTranscribe() {
   }
   i2s_start(I2S_PORT);
 
-  // Open file for recording. We first write a temporary WAV header.
+  // Open file for recording; first write a temporary WAV header.
   Serial.println("Recording...");
   File audioFile = SPIFFS.open(FILENAME, "w");
   if (!audioFile) {
     Serial.println("ERROR - Failed to open file for writing");
     return "";
   }
-  // Write a temporary header (will update later)
+  // Write a temporary header (will be updated later)
   uint8_t wavHeader[WAV_HDR_SIZE] = {0};
   audioFile.write(wavHeader, WAV_HDR_SIZE);
-  
-  // Record audio data into file
+
+  // Record audio data for RECORD_TIME seconds
   int16_t buffer[BUF_SIZE];
   size_t bytesRead = 0, totalAudioBytes = 0;
   uint32_t startTime = millis();
@@ -86,7 +88,8 @@ String recordAndTranscribe() {
       totalAudioBytes += bytesRead;
     }
   }
-  // Update WAV header with actual data size
+  
+  // Update WAV header with actual data size and file size information
   uint32_t fileSize = totalAudioBytes + WAV_HDR_SIZE - 8;
   wavHeader[0] = 'R'; wavHeader[1] = 'I'; wavHeader[2] = 'F'; wavHeader[3] = 'F';
   wavHeader[4] = fileSize & 0xFF; 
@@ -116,19 +119,18 @@ String recordAndTranscribe() {
   wavHeader[41] = (totalAudioBytes >> 8) & 0xFF; 
   wavHeader[42] = (totalAudioBytes >> 16) & 0xFF; 
   wavHeader[43] = (totalAudioBytes >> 24) & 0xFF;
-  // Seek to start and update header
   audioFile.seek(0);
   audioFile.write(wavHeader, WAV_HDR_SIZE);
   audioFile.close();
   Serial.printf("Recording complete: %u bytes written.\n", totalAudioBytes);
 
-  // Stop I2S driver now that recording is done
+  // Stop I2S now that recording is done
   i2s_driver_uninstall(I2S_PORT);
 
-  // Transcribe audio via Deepgram
+  // Connect to Deepgram to transcribe the audio
   Serial.println("Connecting to Deepgram...");
   WiFiClientSecure *client = new WiFiClientSecure;
-  client->setInsecure(); // Skip certificate verification (for demo only)
+  client->setInsecure(); // For demo purposes only; use proper certificate validation in production
   HTTPClient https;
   if (!https.begin(*client, "https://api.deepgram.com/v1/listen?model=nova-2-general&detect_language=true")) {
     Serial.println("ERROR - HTTPS setup failed");
@@ -138,7 +140,7 @@ String recordAndTranscribe() {
   https.addHeader("Content-Type", "audio/wav");
   https.addHeader("Authorization", String("Token ") + deepgramApiKey);
 
-  // Open the recorded file for reading
+  // Open the recorded file for reading and send it
   audioFile = SPIFFS.open(FILENAME, "r");
   int httpCode = https.sendRequest("POST", &audioFile, audioFile.size());
   audioFile.close();
@@ -147,6 +149,12 @@ String recordAndTranscribe() {
   https.end();
   delete client;
 
+  // Check if the response is empty before parsing to avoid crashing
+  if(response.length() == 0) {
+    Serial.println("ERROR - Empty response from Deepgram.");
+    return "";
+  }
+  
   // Parse the JSON response from Deepgram
   DynamicJsonDocument doc(4096);
   DeserializationError jsonError = deserializeJson(doc, response);
@@ -155,6 +163,7 @@ String recordAndTranscribe() {
     Serial.println(jsonError.c_str());
     return "";
   }
+  
   // Extract and return the transcript if available
   if (doc["results"]["channels"][0]["alternatives"][0].containsKey("transcript")) {
     String transcript = doc["results"]["channels"][0]["alternatives"][0]["transcript"].as<String>();
@@ -166,12 +175,14 @@ String recordAndTranscribe() {
   }
 }
 
-// Example sketch to test the bundled function
+// Example sketch to test the bundled function.
+// NOTE: Ensure this function is called only once (e.g. from setup)
+// to avoid repeated reinitializations that might cause instability.
 void setup() {
   Serial.begin(115200);
   // Connect to WiFi
-  WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
+  WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
@@ -189,5 +200,6 @@ void setup() {
 }
 
 void loop() {
+  // Do nothing here to avoid calling the function repeatedly.
   delay(1000);
 }
